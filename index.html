@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Fome Zero - Jogo Educativo</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #f0f0f0;
+      font-family: sans-serif;
+    }
+    canvas {
+      border: 2px solid #333;
+      background-color: #fff;
+      margin-top: 10px;
+    }
+    #menu, #hud, #gameOver, #tutorial {
+      margin-top: 10px;
+    }
+    #gameOver, #tutorial {
+      display: none;
+      text-align: center;
+    }
+    #ranking {
+      display: none;
+      margin-top: 10px;
+    }
+    table {
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #333;
+      padding: 5px 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Fome Zero</h1>
+  <div id="menu">
+    <button id="tutorialBtn">Instruções</button>
+    <p>Digite seu nome:</p>
+    <input type="text" id="playerName" placeholder="Seu nome" />
+    <button id="startBtn">Jogar</button>
+  </div>
+
+  <div id="tutorial">
+    <h2>Como jogar</h2>
+    <p>Ajude a combater a fome! Recolha todos os alimentos <strong>(laranja)</strong>, evite os inimigos <strong>(vermelho)</strong> e entregue os alimentos no ponto de coleta <strong>(verde)</strong>.</p>
+    <p>Você controla o personagem <strong>azul</strong> com as teclas de seta do teclado.</p>
+    <ul>
+      <li>🔼 Seta para cima - Move para cima</li>
+      <li>🔽 Seta para baixo - Move para baixo</li>
+      <li>◀️ Seta para esquerda - Move para a esquerda</li>
+      <li>▶️ Seta para direita - Move para a direita</li>
+    </ul>
+    <p>Cada alimento entregue aumenta sua pontuação. Quanto mais longe chegar, mais rápido os inimigos ficam!</p>
+    <button onclick="voltarMenu()">Voltar</button>
+  </div>
+
+  <canvas id="game" width="320" height="320" style="display:none;"></canvas>
+
+  <div id="hud" style="display:none;">
+    Jogador: <span id="nome"></span> |
+    Fase: <span id="fase">1</span> |
+    Alimentos na mochila: <span id="counter">0</span> |
+    Pontuação: <span id="score">0</span> |
+    Vidas: <span id="lives">3</span>
+  </div>
+
+  <div id="gameOver">
+    <p>Fim de jogo!</p>
+    <div id="ranking"></div>
+    <button onclick="location.reload()">Jogar novamente</button>
+  </div>
+
+  <audio id="bgm" loop>
+    <source src="musica.mp3" type="audio/mpeg">
+    Seu navegador não suporta áudio.
+  </audio>
+
+<script>
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const tileSize = 32;
+  const bgm = document.getElementById('bgm');
+
+  const mapas = [
+    [
+      [1,1,1,1,1,1,1,1,1,1],
+      [1,0,0,0,2,1,0,0,3,1],
+      [1,0,1,1,0,1,0,1,0,1],
+      [1,0,1,0,0,0,0,1,0,1],
+      [1,0,1,0,1,1,0,1,0,1],
+      [1,0,0,0,1,2,0,1,0,1],
+      [1,1,1,0,1,0,0,1,0,1],
+      [1,0,0,0,1,0,1,1,0,1],
+      [1,2,1,0,0,0,0,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1]
+    ],
+    [
+      [1,1,1,1,1,1,1,1,1,1],
+      [1,2,0,1,0,0,0,0,3,1],
+      [1,1,0,1,0,1,1,0,1,1],
+      [1,0,0,0,0,1,2,0,0,1],
+      [1,0,1,1,0,1,1,1,0,1],
+      [1,0,1,0,0,0,0,1,0,1],
+      [1,0,1,0,1,1,0,1,0,1],
+      [1,0,0,0,1,0,0,1,0,1],
+      [1,1,2,0,0,0,1,0,0,1],
+      [1,1,1,1,1,1,1,1,1,1]
+    ]
+  ];
+
+  let map, player, mochila, score, lives, fase, totalAlimentos;
+  let enemySpeed = 800, enemyInterval, enemies;
+  let jogador = "";
+
+  function voltarMenu() {
+    document.getElementById('tutorial').style.display = 'none';
+    document.getElementById('menu').style.display = 'block';
+  }
+
+  function contarAlimentos(mapa) {
+    let count = 0;
+    for (let linha of mapa) {
+      for (let cel of linha) {
+        if (cel === 2) count++;
+      }
+    }
+    return count;
+  }
+
+  function iniciarFase() {
+    const mapaAtual = mapas[(fase - 1) % mapas.length];
+    map = JSON.parse(JSON.stringify(mapaAtual));
+    player = { x: 1, y: 1 };
+    mochila = 0;
+    enemies = [ { x: 8, y: 1 }, { x: 1, y: 8 } ];
+    totalAlimentos = contarAlimentos(map);
+    document.getElementById('counter').textContent = mochila;
+    document.getElementById('fase').textContent = fase;
+    document.getElementById('score').textContent = score;
+
+    if (enemyInterval) clearInterval(enemyInterval);
+    enemyInterval = setInterval(moveEnemies, enemySpeed);
+    draw();
+  }
+
+  function drawMap() {
+    for (let y = 0; y < map.length; y++) {
+      for (let x = 0; x < map[y].length; x++) {
+        ctx.fillStyle = map[y][x] === 1 ? '#333' : map[y][x] === 2 ? 'orange' : map[y][x] === 3 ? 'green' : '#ddd';
+        ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+      }
+    }
+    for (let e of enemies) {
+      ctx.fillStyle = 'red';
+      ctx.fillRect(e.x * tileSize + 6, e.y * tileSize + 6, tileSize - 12, tileSize - 12);
+    }
+    ctx.fillStyle = 'blue';
+    ctx.fillRect(player.x * tileSize + 4, player.y * tileSize + 4, tileSize - 8, tileSize - 8);
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawMap();
+  }
+
+  function movePlayer(dx, dy) {
+    const newX = player.x + dx;
+    const newY = player.y + dy;
+    if (map[newY][newX] !== 1) {
+      player.x = newX;
+      player.y = newY;
+      if (map[newY][newX] === 2) {
+        map[newY][newX] = 0;
+        mochila++;
+        document.getElementById('counter').textContent = mochila;
+      }
+      if (map[newY][newX] === 3 && mochila > 0) {
+        score += mochila;
+        mochila = 0;
+        document.getElementById('counter').textContent = mochila;
+        document.getElementById('score').textContent = score;
+        if (contarAlimentos(map) === 0) {
+          fase++;
+          enemySpeed = Math.max(200, enemySpeed - 100);
+          setTimeout(iniciarFase, 1000);
+        }
+      }
+      draw();
+    }
+  }
+
+  function checkCollision() {
+    for (let e of enemies) {
+      if (e.x === player.x && e.y === player.y) {
+        lives--;
+        document.getElementById('lives').textContent = lives;
+        if (lives <= 0) endGame();
+      }
+    }
+  }
+
+  function moveEnemies() {
+    for (let e of enemies) {
+      const options = [ { dx: 1, dy: 0 }, { dx: -1, dy: 0 }, { dx: 0, dy: 1 }, { dx: 0, dy: -1 } ];
+      const valid = options.filter(opt => map[e.y + opt.dy] && map[e.y + opt.dy][e.x + opt.dx] !== 1);
+      const choice = valid[Math.floor(Math.random() * valid.length)];
+      e.x += choice.dx;
+      e.y += choice.dy;
+    }
+    checkCollision();
+    draw();
+  }
+
+  function salvarRanking() {
+    const ranking = JSON.parse(localStorage.getItem('ranking') || '[]');
+    ranking.push({ nome: jogador, pontos: score, fase: fase });
+    ranking.sort((a,b) => b.pontos - a.pontos);
+    localStorage.setItem('ranking', JSON.stringify(ranking.slice(0,10)));
+    return ranking.slice(0,10);
+  }
+
+  function mostrarRanking() {
+    const ranking = salvarRanking();
+    const div = document.getElementById('ranking');
+    let html = '<h3>Ranking:</h3><table><tr><th>Nome</th><th>Pontos</th><th>Fase</th></tr>';
+    ranking.forEach(j => {
+      html += `<tr><td>${j.nome}</td><td>${j.pontos}</td><td>${j.fase}</td></tr>`;
+    });
+    html += '</table>';
+    div.innerHTML = html;
+    div.style.display = 'block';
+  }
+
+  function endGame() {
+    clearInterval(enemyInterval);
+    document.getElementById('hud').style.display = 'none';
+    document.getElementById('gameOver').style.display = 'block';
+    canvas.style.display = 'none';
+    bgm.pause();
+    mostrarRanking();
+  }
+
+  document.getElementById('startBtn').addEventListener('click', () => {
+    jogador = document.getElementById('playerName').value.trim();
+    if (!jogador) {
+      alert("Digite seu nome!");
+      return;
+    }
+    document.getElementById('nome').textContent = jogador;
+    document.getElementById('menu').style.display = 'none';
+    canvas.style.display = 'block';
+    document.getElementById('hud').style.display = 'block';
+    score = 0;
+    lives = 3;
+    fase = 1;
+    enemySpeed = 800;
+    iniciarFase();
+    document.getElementById('lives').textContent = lives;
+    bgm.volume = 0.3;
+    bgm.play();
+  });
+
+  document.getElementById('tutorialBtn').addEventListener('click', () => {
+    document.getElementById('menu').style.display = 'none';
+    document.getElementById('tutorial').style.display = 'block';
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (lives <= 0) return;
+    switch (e.key) {
+      case 'ArrowUp': movePlayer(0, -1); break;
+      case 'ArrowDown': movePlayer(0, 1); break;
+      case 'ArrowLeft': movePlayer(-1, 0); break;
+      case 'ArrowRight': movePlayer(1, 0); break;
+    }
+    checkCollision();
+  });
+</script>
+</body>
+</html>
